@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>쇼핑 리스트</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f5f6f8;
+    --card: #ffffff;
+    --text: #1f2933;
+    --muted: #8a94a0;
+    --accent: #3b82f6;
+    --danger: #e5484d;
+    --border: #e3e7ec;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14171a;
+      --card: #1e2227;
+      --text: #e6e9ec;
+      --muted: #7b8591;
+      --border: #2e353c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 40px 16px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
+  }
+  main {
+    max-width: 480px;
+    margin: 0 auto;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+  }
+  h1 { margin: 0 0 4px; font-size: 22px; }
+  .summary { margin: 0 0 20px; color: var(--muted); font-size: 14px; }
+  form { display: flex; gap: 8px; margin-bottom: 16px; }
+  input[type="text"] {
+    flex: 1;
+    padding: 10px 12px;
+    font-size: 15px;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  input[type="text"]:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  button { font: inherit; cursor: pointer; }
+  .add {
+    padding: 0 16px;
+    color: #fff;
+    background: var(--accent);
+    border: 0;
+    border-radius: 8px;
+  }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 4px;
+    border-bottom: 1px solid var(--border);
+  }
+  li:last-child { border-bottom: 0; }
+  li label { flex: 1; cursor: pointer; word-break: break-word; }
+  li.done label { color: var(--muted); text-decoration: line-through; }
+  input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent); }
+  .del {
+    color: var(--muted);
+    background: none;
+    border: 0;
+    font-size: 18px;
+    line-height: 1;
+    padding: 4px 8px;
+    border-radius: 6px;
+  }
+  .del:hover { color: var(--danger); }
+  .empty { color: var(--muted); text-align: center; padding: 24px 0; }
+  .clear {
+    margin-top: 16px;
+    color: var(--muted);
+    background: none;
+    border: 0;
+    font-size: 13px;
+  }
+  .clear:hover { color: var(--danger); }
+</style>
+</head>
+<body>
+<main>
+  <h1>🛒 쇼핑 리스트</h1>
+  <p class="summary" id="summary"></p>
+  <form id="form">
+    <input type="text" id="input" placeholder="사야 할 것을 입력하세요" autocomplete="off" maxlength="100" aria-label="새 아이템">
+    <button class="add" type="submit">추가</button>
+  </form>
+  <ul id="list"></ul>
+  <button class="clear" id="clear" type="button" hidden>체크된 항목 모두 삭제</button>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script>
+  const SUPABASE_URL = "https://ntedaubskvohaixibwze.supabase.co";
+  const SUPABASE_KEY = "sb_publishable_HKpnhH8GKEfqhuNJFq8qBA_9aUc6lQd";
+  const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  const TABLE = "shopping_items";
+  const LEGACY_KEY = "shopping-list";
+
+  let items = [];
+
+  function showError(msg, err) {
+    console.error(msg, err);
+    const el = document.getElementById("summary");
+    el.textContent = msg;
+  }
+
+  async function loadItems() {
+    const { data, error } = await db.from(TABLE).select("*").order("created_at").order("id");
+    if (error) return showError("데이터를 불러오지 못했습니다.", error);
+    items = data;
+    render();
+  }
+
+  // 기존 localStorage 데이터를 최초 1회 Supabase로 옮긴다.
+  async function migrateLegacy() {
+    let legacy;
+    try { legacy = JSON.parse(localStorage.getItem(LEGACY_KEY)); } catch (e) { return; }
+    if (!Array.isArray(legacy) || legacy.length === 0) return;
+    const rows = legacy
+      .filter(i => i && typeof i.text === "string" && i.text.trim())
+      .map(i => ({ text: i.text.trim().slice(0, 100), done: !!i.done }));
+    if (rows.length) {
+      const { error } = await db.from(TABLE).insert(rows);
+      if (error) return showError("기존 데이터 이전에 실패했습니다.", error);
+    }
+    try { localStorage.removeItem(LEGACY_KEY); } catch (e) {}
+  }
+
+  function render() {
+    const list = document.getElementById("list");
+    list.textContent = "";
+
+    if (items.length === 0) {
+      const empty = document.createElement("li");
+      empty.className = "empty";
+      empty.textContent = "리스트가 비어 있습니다.";
+      list.appendChild(empty);
+    }
+
+    for (const item of items) {
+      const li = document.createElement("li");
+      if (item.done) li.className = "done";
+
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.id = "item-" + item.id;
+      cb.checked = item.done;
+      cb.addEventListener("change", async () => {
+        const { error } = await db.from(TABLE).update({ done: cb.checked }).eq("id", item.id);
+        if (error) return showError("수정에 실패했습니다.", error);
+        item.done = cb.checked;
+        render();
+      });
+
+      const label = document.createElement("label");
+      label.htmlFor = cb.id;
+      label.textContent = item.text;
+
+      const del = document.createElement("button");
+      del.className = "del";
+      del.type = "button";
+      del.textContent = "✕";
+      del.setAttribute("aria-label", item.text + " 삭제");
+      del.addEventListener("click", async () => {
+        const { error } = await db.from(TABLE).delete().eq("id", item.id);
+        if (error) return showError("삭제에 실패했습니다.", error);
+        items = items.filter(i => i.id !== item.id);
+        render();
+      });
+
+      li.append(cb, label, del);
+      list.appendChild(li);
+    }
+
+    const doneCount = items.filter(i => i.done).length;
+    document.getElementById("summary").textContent =
+      items.length ? `전체 ${items.length}개 · 완료 ${doneCount}개` : "";
+    document.getElementById("clear").hidden = doneCount === 0;
+  }
+
+  document.getElementById("form").addEventListener("submit", async e => {
+    e.preventDefault();
+    const input = document.getElementById("input");
+    const text = input.value.trim();
+    if (!text) return;
+    const { data, error } = await db.from(TABLE).insert({ text }).select().single();
+    if (error) return showError("추가에 실패했습니다.", error);
+    items.push(data);
+    input.value = "";
+    render();
+  });
+
+  document.getElementById("clear").addEventListener("click", async () => {
+    const { error } = await db.from(TABLE).delete().eq("done", true);
+    if (error) return showError("삭제에 실패했습니다.", error);
+    items = items.filter(i => !i.done);
+    render();
+  });
+
+  (async () => {
+    await migrateLegacy();
+    await loadItems();
+  })();
+</script>
+</body>
+</html>
