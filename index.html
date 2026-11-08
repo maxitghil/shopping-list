@@ -92,10 +92,33 @@
     font-size: 13px;
   }
   .clear:hover { color: var(--danger); }
+  #login { text-align: center; }
+  #login form { margin: 16px 0 0; }
+  #login .error { margin: 12px 0 0; color: var(--danger); font-size: 14px; min-height: 1.2em; }
+  input[type="password"] {
+    flex: 1;
+    padding: 10px 12px;
+    font-size: 15px;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  input[type="password"]:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 </style>
 </head>
 <body>
-<main>
+<main id="login">
+  <h1>🔒 로그인</h1>
+  <p class="summary">비밀번호를 입력하세요</p>
+  <form id="login-form">
+    <input type="password" id="password" placeholder="비밀번호" autocomplete="current-password" aria-label="비밀번호" autofocus>
+    <button class="add" type="submit">로그인</button>
+  </form>
+  <p class="error" id="login-error" role="alert"></p>
+</main>
+
+<main id="app" hidden>
   <h1>🛒 쇼핑 리스트</h1>
   <p class="summary" id="summary"></p>
   <form id="form">
@@ -215,10 +238,33 @@
     render();
   });
 
-  (async () => {
+  // ---- 로그인 (비밀번호만) ----
+  const PASSWORD = "2026";
+  const AUTH_KEY = "shopping-auth";
+
+  async function startApp() {
+    document.getElementById("login").hidden = true;
+    document.getElementById("app").hidden = false;
     await migrateLegacy();
     await loadItems();
-  })();
+  }
+
+  document.getElementById("login-form").addEventListener("submit", e => {
+    e.preventDefault();
+    const pw = document.getElementById("password");
+    if (pw.value === PASSWORD) {
+      try { sessionStorage.setItem(AUTH_KEY, "1"); } catch (err) {}
+      startApp();
+    } else {
+      document.getElementById("login-error").textContent = "비밀번호가 올바르지 않습니다.";
+      pw.value = "";
+      pw.focus();
+    }
+  });
+
+  let authed = false;
+  try { authed = sessionStorage.getItem(AUTH_KEY) === "1"; } catch (e) {}
+  if (authed) startApp();
 </script>
 </body>
 </html>
